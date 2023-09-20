@@ -1,0 +1,15 @@
+{
+  "name": "express-new",
+  "version": "1.0.0",
+  "description": "Project express new",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node app.js"
+  },
+  "author": "Elma Kiu",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.20.2"
+  }
+}
