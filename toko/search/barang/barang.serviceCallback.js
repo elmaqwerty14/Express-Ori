@@ -1,24 +1,48 @@
-const client = require('../../koneksiClient.js');
-const express = require("express");
-const port = 3001;
-const path = require("path");
-const cookieParser = require("cookie-parser");
-const logger = require("morgan");
-const bodyParser = require("body-parser");
+const { json } = require('body-parser');
+const {
+  Router
+} = require('express');
 
-const app = express();
-app.use(bodyParser.json());
-  
-client.connect(handleError);
+const client = require('../../koneksi.js');
+const { Client } = require('pg');
+const router = Router();
 
-function handleError(error) {
-  if (error) {
-    console.error('Error connecting to database: ' + error);
+async function authenticate(req, res, next) {
+  const token = req.header('Authorization'); // Mengambil token dari header Authorization
+
+  if (!token) {
+    return res.status(401).json({ message: 'Akses ditolak. Anda belum terautentikasi.' });
+  }
+
+  try {
+    // Cek token di tabel admin
+    const adminQuery = 'SELECT * FROM admin WHERE token = $1';
+    const adminResult = await client.query(adminQuery, [token]);
+
+    // Cek token di tabel pengguna (user)
+    const userQuery = 'SELECT * FROM "user" WHERE token_user = $1';
+    const userResult = await client.query(userQuery, [token]);
+
+    if (adminResult.rows.length === 0 && userResult.rows.length === 0) {
+      return res.status(401).json({ message: 'Token tidak valid.' });
+    }
+
+    // Mendapatkan peran pengguna dari hasil query (misalnya, dari kolom 'role')
+    const sesiRole = adminResult.rows.length > 0 ? 'admin' : 'user';
+
+    // Menyimpan peran pengguna dalam objek req untuk digunakan di rute lainnya
+    req.sesiRole = sesiRole;
+
+    // Jika token valid, izinkan akses
+    next();
+  } catch (error) {
+    console.error('Kesalahan saat memeriksa token:', error);
+    res.status(500).json({ message: 'Kesalahan server.' });
   }
 }
 
 // Rute untuk menjalankan kueri ke database
-app.get('/queryDatabase', (req, res) => {
+router.get('/queryDatabase', (req, res) => {
     client.query('SELECT * FROM produk', (err, result) => {
       if (err) {
         console.error('Kesalahan saat menjalankan kueri', err);
@@ -38,7 +62,7 @@ Jika gagal maka sebaliknya.
 */
 
 // Rute untuk menjalankan neambah data produk ke database
-app.post('/insertProduct', (req, res) => {
+router.post('/insertProduct', authenticate, (req, res) => {
     const { nama_produk, harga_produk, stok_produk } = req.body;
 
     const query = {
@@ -56,28 +80,48 @@ app.post('/insertProduct', (req, res) => {
     });
   });
   
-// Rute untuk mengedit data produk berdasarkan id produk
-app.put('/editProduct/:id', (req, res) => {
-  const { nama_produk, harga_produk, stok_produk } = req.body;
+  router.put('/editProduct/:id', authenticate, (req, res) => {
+    const { nama_produk, harga_produk, stok_produk } = req.body;
+    const id_produk = req.params.id; // Ambil ID produk dari parameter URL
+  
+    // Cek peran pengguna
+    if (req.sesiRole !== 'admin') {
+      return res.status(403).json({ message: 'Anda tidak memiliki izin untuk mengedit produk.' });
+    }
+  
+    const query = {
+      text: 'UPDATE produk SET nama_produk = $1, harga_produk = $2, stok_produk = $3 WHERE id_produk = $4',
+      values: [nama_produk, harga_produk, stok_produk, id_produk],
+    };
+  
+    client.query(query, (err) => {
+      if (err) {
+        console.error('Kesalahan saat mengedit data', err);
+        res.status(500).json({ error: 'Kesalahan saat mengedit data' });
+      } else {
+        res.json({ message: 'Data berhasil diubah' });
+      }
+    });
+  });
+  
+
+// Rute untuk menghapus data produk berdasarkan id produk
+router.delete('/deleteProduct/:id', authenticate, function (req, res) {
   const id_produk = req.params.id; // Ambil ID produk dari parameter URL
 
   const query = {
-    text: 'UPDATE produk SET nama_produk = $1, harga_produk = $2, stok_produk = $3 WHERE id_produk = $4',
-    values: [nama_produk, harga_produk, stok_produk, id_produk],
+    text: 'DELETE FROM produk WHERE id_produk = $1',
+    values: [id_produk],
   };
 
   client.query(query, (err) => {
     if (err) {
-      console.error('Kesalahan saat mengedit data', err);
-      res.status(500).json({ error: 'Kesalahan saat mengedit data' });
+      console.error('Kesalahan saat menghapus data', err);
+      res.status(500).json({ error: 'Kesalahan saat menghapus data' });
     } else {
-      res.json({ message: 'Data berhasil diubah' });
+      res.json({ message: 'Data berhasil dihapus' });
     }
   });
 });
 
-  
-app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-});
-
+module.exports = router;

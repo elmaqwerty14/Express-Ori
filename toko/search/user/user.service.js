@@ -5,6 +5,31 @@ const {
 
 const client = require('../../koneksi.js');
 const router = Router();
+
+async function authenticate(req, res, next) {
+  const token_user = req.header('Authorization'); // Mengambil token dari header Authorization
+
+  if (!token_user) {
+    return res.status(401).json({ message: 'Akses ditolak. Anda belum terautentikasi.' });
+  }
+
+  try {
+    // Cek token di database
+    const query = 'SELECT * FROM "user" WHERE token_user = $1';
+    const result = await client.query(query, [token]);
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: 'Token tidak valid.' });
+    }
+
+    // Jika token valid, izinkan akses
+    next();
+  } catch (error) {
+    console.error('Kesalahan saat memeriksa token:', error);
+    res.status(500).json({ message: 'Kesalahan server.' });
+  }
+}
+
 router.get('/queryDatabaseUser', (req, res) => {
   client.query('SELECT * FROM "user"')  
     .then(result => {
